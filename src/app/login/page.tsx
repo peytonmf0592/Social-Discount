@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useState, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,29 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Mail, ArrowLeft } from "lucide-react";
 
+const DEV_EMAIL = "dev@socialperks.test";
+
 function LoginForm() {
   const searchParams = useSearchParams();
   const defaultTab = searchParams.get("type") === "business" ? "business" : "customer";
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
+
+  // Dev shortcut: press "d" to auto-fill developer credentials
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only trigger if not typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      if (e.key === "d" || e.key === "D") {
+        setEmail(DEV_EMAIL);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
