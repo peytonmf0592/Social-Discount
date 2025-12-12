@@ -1,69 +1,56 @@
-import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
-export default auth((req) => {
-  const { nextUrl } = req;
-  const isLoggedIn = !!req.auth;
-  const userRole = req.auth?.user?.role;
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Get session token from cookies
+  const sessionToken =
+    request.cookies.get("authjs.session-token")?.value ||
+    request.cookies.get("__Secure-authjs.session-token")?.value;
+
+  const isLoggedIn = !!sessionToken;
 
   // Public routes - no auth required
   const publicRoutes = ["/", "/login", "/c"];
   const isPublicRoute = publicRoutes.some(
-    (route) => nextUrl.pathname === route || nextUrl.pathname.startsWith("/c/")
+    (route) => pathname === route || pathname.startsWith("/c/")
   );
 
   // API routes - handle separately
-  if (nextUrl.pathname.startsWith("/api")) {
+  if (pathname.startsWith("/api")) {
+    return NextResponse.next();
+  }
+
+  // Static files and assets
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.includes(".") ||
+    pathname.startsWith("/favicon")
+  ) {
     return NextResponse.next();
   }
 
   // Public routes are accessible to everyone
   if (isPublicRoute) {
-    // If logged in and trying to access login, redirect to dashboard
-    if (isLoggedIn && nextUrl.pathname === "/login") {
-      const redirectUrl = getRoleBasedRedirect(userRole);
-      return NextResponse.redirect(new URL(redirectUrl, nextUrl));
+    // If logged in and trying to access login, redirect to app
+    if (isLoggedIn && pathname === "/login") {
+      return NextResponse.redirect(new URL("/app/wallet", request.url));
     }
     return NextResponse.next();
   }
 
   // Protected routes - require auth
   if (!isLoggedIn) {
-    const callbackUrl = encodeURIComponent(nextUrl.pathname);
+    const callbackUrl = encodeURIComponent(pathname);
     return NextResponse.redirect(
-      new URL(`/login?callbackUrl=${callbackUrl}`, nextUrl)
+      new URL(`/login?callbackUrl=${callbackUrl}`, request.url)
     );
   }
 
-  // Role-based access control
-  const pathname = nextUrl.pathname;
-
-  // Admin routes
-  if (pathname.startsWith("/app/admin")) {
-    if (userRole !== "ADMIN") {
-      return NextResponse.redirect(new URL("/app/wallet", nextUrl));
-    }
-  }
-
-  // Merchant/Business routes
-  if (pathname.startsWith("/app/business")) {
-    if (userRole !== "MERCHANT" && userRole !== "ADMIN") {
-      return NextResponse.redirect(new URL("/app/wallet", nextUrl));
-    }
-  }
-
+  // Role-based access is handled at the page level
+  // since we can't decode JWT without the secret in Edge
   return NextResponse.next();
-});
-
-function getRoleBasedRedirect(role?: string): string {
-  switch (role) {
-    case "ADMIN":
-      return "/app/admin";
-    case "MERCHANT":
-      return "/app/business";
-    default:
-      return "/app/wallet";
-  }
 }
 
 export const config = {
