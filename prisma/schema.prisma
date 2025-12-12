@@ -1,0 +1,262 @@
+// Social Perks - Prisma Schema
+// Credits stored as integer cents, never floats
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// USER & AUTH
+// ============================================
+
+enum UserRole {
+  CUSTOMER
+  MERCHANT
+  ADMIN
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  role          UserRole  @default(CUSTOMER)
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  businesses     Business[]
+  visits         Visit[]
+  submissions    PostSubmission[]
+  ledgerEntries  CreditLedger[]
+  redemptions    Redemption[]
+  verifications  Verification[]   @relation("VerifiedBy")
+
+  // Auth.js
+  accounts Account[]
+  sessions Session[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================
+// BUSINESS & CAMPAIGNS
+// ============================================
+
+model Business {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  logo        String?
+  address     String?
+  phone       String?
+  website     String?
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  owner      User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  campaigns  Campaign[]
+  redemptions Redemption[]
+
+  @@map("businesses")
+}
+
+enum Platform {
+  INSTAGRAM
+  TIKTOK
+  FACEBOOK
+  TWITTER
+  YOUTUBE
+  OTHER
+}
+
+model Campaign {
+  id                     String   @id @default(cuid())
+  businessId             String
+  name                   String
+  description            String?
+  rewardAmountCents      Int      // Credits reward in cents (e.g., 200 = $2.00)
+  requiredHashtag        String?  // e.g., "#DemoBusiness"
+  requiredCaption        String?  // Exact caption line if needed
+  platform               Platform @default(INSTAGRAM)
+  postingWindowHours     Int      @default(2)  // Hours after check-in to post
+  minPostDurationHours   Int      @default(24) // Post must stay live this long
+  suggestedDisclosure    String?  // FTC-compliant disclosure text
+  maxRedemptionsPerUser  Int      @default(1)  // Limit per customer
+  totalBudgetCents       Int?     // Optional campaign budget cap
+  isActive               Boolean  @default(true)
+  startsAt               DateTime @default(now())
+  endsAt                 DateTime?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  // Relations
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  visits   Visit[]
+
+  @@map("campaigns")
+}
+
+// ============================================
+// CUSTOMER FLOW
+// ============================================
+
+model Visit {
+  id          String   @id @default(cuid())
+  campaignId  String
+  customerId  String
+  startedAt   DateTime @default(now()) // When they scanned QR / clicked "Start"
+  expiresAt   DateTime // Posting window deadline
+  createdAt   DateTime @default(now())
+
+  // Relations
+  campaign   Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customer   User             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  submission PostSubmission?
+
+  @@unique([campaignId, customerId]) // One visit per campaign per customer
+  @@map("visits")
+}
+
+model PostSubmission {
+  id            String   @id @default(cuid())
+  visitId       String   @unique
+  postUrl       String?  // URL to the social media post
+  screenshotUrl String?  // Fallback: uploaded screenshot
+  captionText   String?  // User-entered caption (for verification)
+  screenshotHash String? // For duplicate detection
+  submittedAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  visit        Visit         @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  submitter    User          @relation(fields: [submitterId], references: [id])
+  submitterId  String
+  verification Verification?
+
+  @@map("post_submissions")
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Verification {
+  id           String             @id @default(cuid())
+  submissionId String             @unique
+  status       VerificationStatus @default(PENDING)
+  reviewerId   String?            // Admin who reviewed
+  reviewerNotes String?           // Reason for rejection, etc.
+  autoChecks   Json?              // Results of automated checks
+  reviewedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  // Relations
+  submission PostSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  reviewer   User?          @relation("VerifiedBy", fields: [reviewerId], references: [id])
+
+  @@map("verifications")
+}
+
+// ============================================
+// CREDITS LEDGER (Immutable)
+// ============================================
+
+enum LedgerEntryType {
+  EARNED    // Credit earned from verified post
+  REDEEMED  // Credit used for discount
+  EXPIRED   // Credit expired (if implementing expiration)
+  ADJUSTED  // Manual adjustment by admin
+}
+
+model CreditLedger {
+  id          String          @id @default(cuid())
+  userId      String
+  businessId  String          // Credits are business-specific
+  amountCents Int             // Positive for earned, negative for redeemed
+  type        LedgerEntryType
+  description String?
+  referenceId String?         // ID of related submission/redemption
+  createdAt   DateTime        @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // This is an append-only ledger - no updates allowed
+  @@index([userId, businessId])
+  @@map("credit_ledger")
+}
+
+// ============================================
+// REDEMPTIONS
+// ============================================
+
+model Redemption {
+  id            String   @id @default(cuid())
+  customerId    String
+  businessId    String
+  amountCents   Int      // Amount redeemed in cents
+  redemptionCode String  @unique // Code shown to customer / scanned by merchant
+  redeemedAt    DateTime? // When merchant marked as used
+  expiresAt     DateTime? // Optional expiration
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  customer User     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("redemptions")
+}
