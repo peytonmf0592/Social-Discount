@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useTransition } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -8,20 +8,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, ArrowLeft } from "lucide-react";
+import { Mail, ArrowLeft, Loader2 } from "lucide-react";
+import { loginWithEmail } from "./actions";
 
 const DEV_EMAIL = "dev@socialperks.test";
 
 function LoginForm() {
   const searchParams = useSearchParams();
   const defaultTab = searchParams.get("type") === "business" ? "business" : "customer";
+  const callbackUrl = searchParams.get("callbackUrl") || undefined;
   const [email, setEmail] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   // Dev shortcut: press "d" to auto-fill developer credentials
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only trigger if not typing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
@@ -36,39 +38,15 @@ function LoginForm() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: Implement actual auth with Auth.js
-    setSubmitted(true);
-  };
+    setError(null);
 
-  if (submitted) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background px-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 rounded-full bg-primary/10 p-3 w-fit">
-              <Mail className="h-6 w-6 text-primary" />
-            </div>
-            <CardTitle>Check your email</CardTitle>
-            <CardDescription>
-              We sent a magic link to <strong>{email}</strong>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground text-center">
-              Click the link in the email to sign in. The link will expire in 10 minutes.
-            </p>
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => setSubmitted(false)}
-            >
-              Use a different email
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+    startTransition(async () => {
+      const result = await loginWithEmail(email, callbackUrl);
+      if (result?.error) {
+        setError(result.error);
+      }
+    });
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
@@ -89,6 +67,12 @@ function LoginForm() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {error && (
+              <div className="mb-4 p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+                {error}
+              </div>
+            )}
+
             <Tabs defaultValue={defaultTab} className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="customer">I&apos;m a Customer</TabsTrigger>
@@ -108,10 +92,15 @@ function LoginForm() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
+                      disabled={isPending}
                     />
                   </div>
-                  <Button type="submit" className="w-full">
-                    <Mail className="mr-2 h-4 w-4" />
+                  <Button type="submit" className="w-full" disabled={isPending}>
+                    {isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Mail className="mr-2 h-4 w-4" />
+                    )}
                     Sign in with Email
                   </Button>
                 </form>
@@ -130,15 +119,26 @@ function LoginForm() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
+                      disabled={isPending}
                     />
                   </div>
-                  <Button type="submit" className="w-full">
-                    <Mail className="mr-2 h-4 w-4" />
+                  <Button type="submit" className="w-full" disabled={isPending}>
+                    {isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Mail className="mr-2 h-4 w-4" />
+                    )}
                     Sign in with Email
                   </Button>
                 </form>
               </TabsContent>
             </Tabs>
+
+            <div className="mt-4 p-3 bg-muted rounded-md">
+              <p className="text-xs text-muted-foreground text-center">
+                <strong>Dev mode:</strong> Press &quot;d&quot; to auto-fill test account
+              </p>
+            </div>
 
             <p className="mt-6 text-xs text-center text-muted-foreground">
               By signing in, you agree to our{" "}
@@ -162,7 +162,7 @@ export default function LoginPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-pulse">Loading...</div>
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     }>
       <LoginForm />

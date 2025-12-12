@@ -75,12 +75,14 @@ export function AppHeader({ user }: AppHeaderProps) {
             </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <Link href="/api/auth/signout" className="cursor-pointer text-destructive">
-              <LogOut className="mr-2 h-4 w-4" />
-              Sign out
-            </Link>
-          </DropdownMenuItem>
+          <form action="/api/auth/signout" method="POST">
+            <DropdownMenuItem asChild>
+              <button type="submit" className="w-full cursor-pointer text-destructive">
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign out
+              </button>
+            </DropdownMenuItem>
+          </form>
         </DropdownMenuContent>
       </DropdownMenu>
     </header>
